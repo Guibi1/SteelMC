@@ -4195,7 +4195,7 @@ dependencies = [
 [[package]]
 name = "nylium"
 version = "0.0.0"
-source = "git+https://github.com/Guibi1/Nylium#ca8b1c95f9ef1af9bc73f065acf981d3c67bbf8c"
+source = "git+https://github.com/Guibi1/Nylium#207622c54b7e8d1656c77a910b0c026360eca33e"
 dependencies = [
  "async-compat",
  "async-trait",
@@ -4216,7 +4216,7 @@ dependencies = [
 [[package]]
 name = "nylium-adapter"
 version = "0.0.0"
-source = "git+https://github.com/Guibi1/Nylium#ca8b1c95f9ef1af9bc73f065acf981d3c67bbf8c"
+source = "git+https://github.com/Guibi1/Nylium#207622c54b7e8d1656c77a910b0c026360eca33e"
 dependencies = [
  "async-trait",
  "gpui",
@@ -4226,7 +4226,7 @@ dependencies = [
 [[package]]
 name = "nylium-assets"
 version = "0.0.0"
-source = "git+https://github.com/Guibi1/Nylium#ca8b1c95f9ef1af9bc73f065acf981d3c67bbf8c"
+source = "git+https://github.com/Guibi1/Nylium#207622c54b7e8d1656c77a910b0c026360eca33e"
 dependencies = [
  "gpui",
  "gpui-component",
@@ -6446,7 +6446,9 @@ dependencies = [
  "nylium",
  "nylium-adapter",
  "steel",
+ "steel-core",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
