@@ -4,10 +4,8 @@ mod game_profile;
 /// This module contains the networking implementation for the player.
 pub mod networking;
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use game_profile::GameProfile;
 use parking_lot::Mutex;
@@ -15,11 +13,9 @@ use parking_lot::Mutex;
 use steel_protocol::packets::{common::SCustomPayload, game::SMovePlayer};
 use steel_utils::{ChunkPos, math::Vector3, translations};
 
-use crate::{
-    chunk::player_chunk_view::PlayerChunkView,
-    player::{chunk_sender::ChunkSender, networking::JavaConnection},
-    world::World,
-};
+use crate::chunk::player_chunk_view::PlayerChunkView;
+use crate::player::{chunk_sender::ChunkSender, networking::JavaConnection};
+use crate::world::World;
 
 /// A struct representing a player.
 pub struct Player {
@@ -117,6 +113,11 @@ impl Player {
         }
 
         false
+    }
+
+    /// Teleports the player to a new position with optional yaw and pitch.
+    pub fn teleport(self: Arc<Self>, _position: Vector3<f64>, _yaw: Option<f32>, _pitch: Option<f32>) {
+        // TODO: Implement teleportation logic
     }
 
     #[allow(clippy::unused_self)]
