@@ -1,95 +1,225 @@
 //! This module contains the actual command implementations.
-pub mod gamemode;
-pub mod teleport;
+// pub mod gamemode;
+// pub mod teleport;
+pub mod weather;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::command::arguments::{Arg, CommandParserArgument};
+use crate::command::arguments::CommandArgument;
+use crate::command::arguments::literal::LiteralArgument;
 use crate::command::context::CommandContext;
 use crate::command::error::CommandError;
 use crate::server::Server;
 
-/// The trait that all command handlers must implement.
-pub trait CommandHandler: Send + Sync {
-    /// The permission required to execute this command.
-    fn get_permission(&self) -> &str;
-
-    /// The command parser tree for this command.
-    fn get_tree(&self) -> Box<[CommandParserNode]>;
-
-    /// Executes the command with the given parsed arguments.
+/// Trait for command handler objects, allowing type-erased storage.
+pub trait CommandHandlerDyn: Send + Sync {
+    /// Returns the names and aliases of this command.
+    fn names(&self) -> &'static [&'static str];
+    /// Returns the description of this command.
+    fn description(&self) -> &'static str;
+    /// Returns the permission required to execute this command.
+    fn permission(&self) -> &'static str;
+    /// Try to run the command with the given unparsed arguments and context.
     fn execute(
         &self,
-        args: HashMap<&'static str, Arg>,
-        context: &mut CommandContext,
+        command_args: &[&str],
         server: Arc<Server>,
-    ) -> Result<(), CommandError>;
-
-    /// Parses the command arguments according to the command parser tree.
-    fn parse<'a>(
-        &self,
-        command_args: &'a [&'a str],
         context: &mut CommandContext,
-    ) -> Option<HashMap<&'static str, Arg<'a>>> {
-        let mut args = HashMap::new();
-        for node in &self.get_tree() {
-            if node.parse_arguments(&command_args, &mut args, context) {
-                return Some(args);
-            }
-        }
+    ) -> Result<(), CommandError>;
+}
 
-        None
+/// The struct that holds command handler data and executor.
+pub(super) struct CommandHandler<E> {
+    /// The name and aliases of this command.
+    pub names: &'static [&'static str],
+    /// A description of this command.
+    pub description: &'static str,
+    /// The permission required to execute this command.    
+    pub permission: &'static str,
+    /// The command parser chain for this command.
+    executor: Option<E>,
+}
+
+impl<E> CommandHandler<E>
+where
+    E: CommandExecutor<()>,
+{
+    /// Creates a new command handler.
+    pub fn new(
+        names: &'static [&'static str],
+        description: &'static str,
+        permission: &'static str,
+    ) -> Self {
+        CommandHandler {
+            names,
+            description,
+            permission,
+            executor: None,
+        }
+    }
+
+    pub fn then(mut self, executor: E) -> Self {
+        self.executor = Some(executor);
+        self
+    }
+
+    pub fn executes(mut self, executor: E) -> Self {
+        self.executor = Some(executor);
+        self
     }
 }
 
-/// A node in the command parser tree.
-pub enum CommandParserNode {
-    /// A node that will parse an argument.
-    Argument {
-        /// The name of this argument.
-        /// Used as a key in the `args` HashMap passed to [CommandHandler::execute].
-        name: &'static str,
-        /// The parser to use for this argument.
-        parser: CommandParserArgument,
-        /// The child nodes of this node.
-        children: Box<[CommandParserNode]>,
-    },
-    /// A leaf node.
-    /// Reaching this node while having parsed every arguments will run the command.
-    Execute,
+impl<E> CommandHandlerDyn for CommandHandler<E>
+where
+    E: for<'a> CommandParserExecutor<'a, ()> + Send + Sync,
+{
+    fn names(&self) -> &'static [&'static str] {
+        self.names
+    }
+
+    fn description(&self) -> &'static str {
+        self.description
+    }
+
+    fn permission(&self) -> &'static str {
+        self.permission
+    }
+
+    fn execute(
+        &self,
+        command_args: &[&str],
+        server: Arc<Server>,
+        context: &mut CommandContext,
+    ) -> Result<(), CommandError> {
+        // TODO: Allow commands without args
+        let Some(executor) = &self.executor else {
+            unimplemented!(
+                "Command {} has no executor defined. Please call `then()` or `executes()` on your CommandHandler.",
+                self.names[0]
+            );
+        };
+
+        let Some(result) = executor.execute(command_args, (), &server, context) else {
+            return Err(CommandError::CommandFailed(
+                format!("Invalid Syntax.").into(),
+            ));
+        };
+
+        result
+    }
 }
 
-impl CommandParserNode {
-    fn parse_arguments<'a>(
+/// A node in the command parser chain.
+pub struct CommandParserArgNode<A, E> {
+    /// The parser to use for this argument.
+    argument: Box<dyn CommandArgument<Output = A>>,
+    /// The executor to run if this node matches the command input.
+    executor: E,
+}
+
+impl<'a, A, E, P> CommandParserExecutor<'a, P> for CommandParserArgNode<A, E>
+where
+    E: CommandParserExecutor<'a, (A, P)>,
+{
+    fn execute(
         &self,
         args: &'a [&'a str],
-        parsed: &mut HashMap<&'static str, Arg<'a>>,
+        parsed: P,
+        server: &Arc<Server>,
         context: &mut CommandContext,
-    ) -> bool {
-        match self {
-            CommandParserNode::Execute => args.is_empty(),
-            CommandParserNode::Argument {
-                name,
-                parser,
-                children,
-            } => {
-                if args.is_empty() {
-                    return false;
-                }
-                let Some((arg, args)) = parser.parse(args, context) else {
-                    return false;
-                };
+    ) -> Option<Result<(), CommandError>> {
+        let Some((args, arg)) = self.argument.parse(args, context) else {
+            return None;
+        };
 
-                parsed.insert(name, arg);
-                for child in children {
-                    if child.parse_arguments(args, parsed, context) {
-                        return true;
-                    }
-                }
-                parsed.remove(name);
-                false
-            }
+        self.executor.execute(args, (arg, parsed), &server, context)
+    }
+}
+
+/// A leaf in the command parser chain.
+pub struct CommandParserLeaf<E> {
+    /// The function to run.
+    executor: E,
+}
+
+impl<'a, E, P> CommandParserExecutor<'a, P> for CommandParserLeaf<E>
+where
+    E: Fn(&'a [&'a str], P, &Arc<Server>, &mut CommandContext) -> Result<(), CommandError>,
+{
+    fn execute(
+        &self,
+        args: &'a [&'a str],
+        parsed: P,
+        server: &Arc<Server>,
+        context: &mut CommandContext,
+    ) -> Option<Result<(), CommandError>> {
+        if args.is_empty() {
+            Some((self.executor)(args, parsed, &server, context))
+        } else {
+            None
+        }
+    }
+}
+
+pub(super) trait CommandParserExecutor<'a, P> {
+    fn execute(
+        &self,
+        args: &'a [&'a str],
+        parsed: P,
+        server: &Arc<Server>,
+        context: &mut CommandContext,
+    ) -> Option<Result<(), CommandError>>;
+}
+
+pub(super) trait CommandExecutor<P> {
+    fn execute(
+        &self,
+        parsed: P,
+        server: &Arc<Server>,
+        context: &mut CommandContext,
+    ) -> Result<(), CommandError>;
+}
+
+struct LiteralBuilder {
+    literal: LiteralArgument,
+}
+
+pub fn literal(expected: &'static str) -> LiteralBuilder {
+    LiteralBuilder {
+        literal: LiteralArgument { expected },
+    }
+}
+
+impl<'a> LiteralBuilder {
+    pub fn executes<E, P>(self, executor: E) -> CommandParserArgNode<(), E>
+    where
+        E: CommandExecutor<P>,
+    {
+        CommandParserArgNode {
+            argument: Box::new(self.literal),
+            executor,
+        }
+    }
+}
+
+struct ArgumentBuilder<A> {
+    argument: Box<dyn CommandArgument<Output = A>>,
+}
+
+pub fn argument<A>(argument: impl CommandArgument<Output = A> + 'static) -> ArgumentBuilder<A> {
+    ArgumentBuilder {
+        argument: Box::new(argument),
+    }
+}
+
+impl<'a, A> ArgumentBuilder<A> {
+    pub fn executes<E, P>(self, executor: E) -> CommandParserArgNode<A, E>
+    where
+        E: CommandParserExecutor<'a, (A, P)>,
+    {
+        CommandParserArgNode {
+            argument: self.argument,
+            executor,
         }
     }
 }

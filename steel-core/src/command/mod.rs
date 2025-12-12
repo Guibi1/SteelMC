@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use steel_utils::text::{TextComponent, color::NamedColor};
 
-use crate::command::commands::*;
+use crate::command::commands::CommandHandlerDyn;
 use crate::command::context::CommandContext;
 use crate::command::error::CommandError::{self, *};
 use crate::command::sender::CommandSender;
@@ -18,7 +18,7 @@ use crate::server::Server;
 /// A struct that parses and dispatches commands to their appropriate handlers.
 pub struct CommandDispatcher {
     /// A map of command names to their handlers.
-    handlers: scc::HashMap<&'static str, Arc<dyn CommandHandler>>,
+    handlers: scc::HashMap<&'static str, Arc<dyn CommandHandlerDyn>>,
 }
 
 impl CommandDispatcher {
@@ -86,10 +86,7 @@ impl CommandDispatcher {
         //     return Err(PermissionDenied);
         // };
 
-        match handler.parse(&command_args, context) {
-            Some(parsed_args) => handler.execute(parsed_args, context, server),
-            None => Err(CommandFailed(format!("Invalid Syntax.").into())),
-        }
+        handler.execute(&command_args, server, context)
     }
 
     /// Parses a command string into its components.
@@ -109,10 +106,10 @@ impl CommandDispatcher {
     }
 
     /// Registers a command handler.
-    pub fn register(&self, names: &[&'static str], handler: impl CommandHandler + 'static) {
+    pub fn register(&self, handler: impl CommandHandlerDyn + 'static) {
         let handler = Arc::new(handler);
 
-        for name in names {
+        for name in handler.names() {
             if let Err((name, _)) = self.handlers.insert_sync(name, handler.clone()) {
                 log::warn!("Command {} is already registered", name);
             }
@@ -129,9 +126,9 @@ impl CommandDispatcher {
 
 impl Default for CommandDispatcher {
     fn default() -> Self {
-        let dispatcher = Self::new();
-        dispatcher.register(&gamemode::NAMES, gamemode::GameModeCommandHandler);
-        dispatcher.register(&teleport::NAMES, teleport::TeleportCommandHandler);
+        let dispatcher = CommandDispatcher::new();
+        // dispatcher.register(&gamemode::NAMES, gamemode::GameModeCommandHandler);
+        // dispatcher.register(&teleport::NAMES, teleport::TeleportCommandHandler);
         dispatcher
     }
 }
